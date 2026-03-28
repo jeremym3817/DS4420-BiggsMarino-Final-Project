@@ -96,3 +96,92 @@
 # e. Fit Bayesian model
 #
 # f. Extract the batting and pitching effects for each season
+
+
+
+library(jsonlite)
+library(tidyverse)
+install.packages("listviewer")
+
+data <- fromJSON("data/div1/2012.json")
+data_sorted <- data[order(names(data))]
+
+# interactive viewer in RStudio
+listviewer::jsonedit(data_sorted)
+
+# Now moving over to all data
+years <- 2012:2025
+all_data <- map_dfr(years, function(yr) {
+  path <- paste0("data/div1/", yr, ".json")
+  if (!file.exists(path)) return(NULL)
+  
+  raw <- fromJSON(path)
+  
+  # Each element is a team; convert to rows
+  map_dfr(raw, ~as_tibble(.x), .id = "team_key") %>%
+    mutate(season = yr)
+})
+
+model_data <- all_data %>%
+  select(
+    team,
+    conference = league,
+    season,
+    wpct = WPCT,
+    ops = OBP,         # or use OPS if you compute it: SLG + OBP
+    rpg = RPG,
+    era = ERA,
+    r_pitching = `R (Pitching)`,
+    r_batting = `R (Batting)`,
+    slg = SLG,
+    g = G
+  ) %>%
+  mutate(
+    ops = slg + ops,   # OPS = OBP + SLG (since raw OPS isn't in the data)
+    run_diff = r_batting - r_pitching,
+    season_f = factor(season)
+  )
+
+model_data <- model_data %>%
+  mutate(
+    ops_z = (ops - mean(ops, na.rm = TRUE)) / sd(ops, na.rm = TRUE),
+    era_z = (era - mean(era, na.rm = TRUE)) / sd(era, na.rm = TRUE)
+  )
+
+install.packages("brms")
+library(brms)
+
+fit <- brm(
+  wpct ~ 1 + ops_z:season_f + era_z:season_f + (1 | conference),
+  data = model_data,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0.5, 0.2), class = "Intercept"),
+    prior(normal(0, 0.5), class = "b"),
+    prior(normal(0, 0.1), class = "sd")
+  ),
+  chains = 4,
+  iter = 2000,
+  cores = 4
+)
+
+# Pull posterior draws for the season-specific effects
+draws <- as_draws_df(fit)
+
+# Or more conveniently:
+conditional_effects(fit, effects = "ops_z:season_f")
+
+# For a custom plot of how effects evolve:
+posterior_summary(fit) %>%
+  as.data.frame() %>%
+  rownames_to_column("param") %>%
+  filter(str_detect(param, "ops_z|era_z")) %>%
+  mutate(
+    type = if_else(str_detect(param, "ops"), "Batting (OPS)", "Pitching (ERA)"),
+    year = as.numeric(str_extract(param, "\\d{4}"))
+  ) %>%
+  ggplot(aes(x = year, y = Estimate, color = type)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = type), alpha = 0.2) +
+  labs(y = "Effect on WPCT", title = "Batting vs Pitching Effect Over Time")
+
