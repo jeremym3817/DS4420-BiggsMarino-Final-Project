@@ -100,88 +100,200 @@
 
 
 library(jsonlite)
-library(tidyverse)
-install.packages("listviewer")
+library(ggplot2)
+library(dplyr)
 
 data <- fromJSON("data/div1/2012.json")
 data_sorted <- data[order(names(data))]
 
 # interactive viewer in RStudio
-listviewer::jsonedit(data_sorted)
+str(data_sorted, max.level = 2)
 
 # Now moving over to all data
 years <- 2012:2025
-all_data <- map_dfr(years, function(yr) {
+all_rows <- list()
+row_i <- 1
+
+for (yr in years) {
   path <- paste0("data/div1/", yr, ".json")
-  if (!file.exists(path)) return(NULL)
-  
+  if (!file.exists(path)) next
+
   raw <- fromJSON(path)
-  
+
   # Each element is a team; convert to rows
-  map_dfr(raw, ~as_tibble(.x), .id = "team_key") %>%
-    mutate(season = yr)
-})
+  for (team_key in names(raw)) {
+    team_info <- as.data.frame(raw[[team_key]], stringsAsFactors = FALSE)
+    team_info$team_key <- team_key
+    team_info$season <- yr
+    all_rows[[row_i]] <- team_info
+    row_i <- row_i + 1
+  }
+}
 
-model_data <- all_data %>%
-  select(
-    team,
-    conference = league,
-    season,
-    wpct = WPCT,
-    ops = OBP,         # or use OPS if you compute it: SLG + OBP
-    rpg = RPG,
-    era = ERA,
-    r_pitching = `R (Pitching)`,
-    r_batting = `R (Batting)`,
-    slg = SLG,
-    g = G
-  ) %>%
-  mutate(
-    ops = slg + ops,   # OPS = OBP + SLG (since raw OPS isn't in the data)
-    run_diff = r_batting - r_pitching,
-    season_f = factor(season)
-  )
+all_data <- bind_rows(all_rows)
 
-model_data <- model_data %>%
-  mutate(
-    ops_z = (ops - mean(ops, na.rm = TRUE)) / sd(ops, na.rm = TRUE),
-    era_z = (era - mean(era, na.rm = TRUE)) / sd(era, na.rm = TRUE)
-  )
-
-install.packages("brms")
-library(brms)
-
-fit <- brm(
-  wpct ~ 1 + ops_z:season_f + era_z:season_f + (1 | conference),
-  data = model_data,
-  family = gaussian(),
-  prior = c(
-    prior(normal(0.5, 0.2), class = "Intercept"),
-    prior(normal(0, 0.5), class = "b"),
-    prior(normal(0, 0.1), class = "sd")
-  ),
-  chains = 4,
-  iter = 2000,
-  cores = 4
+model_data <- data.frame(
+  team = all_data$team,
+  conference = all_data$league,
+  season = all_data$season,
+  wpct = as.numeric(all_data$WPCT),
+  obp = as.numeric(all_data$OBP),
+  rpg = as.numeric(all_data$RPG),
+  era = as.numeric(all_data$ERA),
+  r_pitching = as.numeric(all_data$R..Pitching.),
+  r_batting = as.numeric(all_data$R..Batting.),
+  slg = as.numeric(all_data$SLG),
+  g = as.numeric(all_data$G),
+  stringsAsFactors = FALSE
 )
 
+model_data$ops <- model_data$slg + model_data$obp   # OPS = OBP + SLG (since raw OPS isn't in the data)
+model_data$run_diff <- model_data$r_batting - model_data$r_pitching
+
+model_data$ops_z <- (model_data$ops - mean(model_data$ops, na.rm = TRUE)) / sd(model_data$ops, na.rm = TRUE)
+model_data$era_z <- (model_data$era - mean(model_data$era, na.rm = TRUE)) / sd(model_data$era, na.rm = TRUE)
+
+model_data <- model_data[complete.cases(model_data$wpct, model_data$ops_z, model_data$era_z), ]
+
+# ---------- manual bayesian model using metropolis-hastings ----------
+
+unique_seasons <- sort(unique(model_data$season))
+unique_confs <- sort(unique(model_data$conference))
+n_seasons <- length(unique_seasons)
+n_confs <- length(unique_confs)
+
+# number of params: intercept + batting effect per season + pitching effect per season + conference random effects + sigma
+n_params <- 1 + n_seasons + n_seasons + n_confs + 1
+
+# log likelihood function
+log_likelihood <- function(params, data) {
+  intercept <- params[1]
+  beta_bat <- params[2:(1 + n_seasons)]
+  beta_pit <- params[(2 + n_seasons):(1 + 2 * n_seasons)]
+  conf_effects <- params[(2 + 2 * n_seasons):(1 + 2 * n_seasons + n_confs)]
+  sigma <- exp(params[length(params)])  # exp so it stays positive
+
+  ll <- 0
+  for (i in 1:nrow(data)) {
+    s_idx <- which(unique_seasons == data$season[i])
+    c_idx <- which(unique_confs == data$conference[i])
+
+    mu <- intercept + beta_bat[s_idx] * data$ops_z[i] + beta_pit[s_idx] * data$era_z[i] + conf_effects[c_idx]
+    ll <- ll + dnorm(data$wpct[i], mean = mu, sd = sigma, log = TRUE)
+  }
+  return(ll)
+}
+
+# log prior
+log_prior <- function(params) {
+  intercept <- params[1]
+  beta_bat <- params[2:(1 + n_seasons)]
+  beta_pit <- params[(2 + n_seasons):(1 + 2 * n_seasons)]
+  conf_effects <- params[(2 + 2 * n_seasons):(1 + 2 * n_seasons + n_confs)]
+  log_sigma <- params[length(params)]
+
+  lp <- dnorm(intercept, mean = 0.5, sd = 0.2, log = TRUE)
+  lp <- lp + sum(dnorm(beta_bat, mean = 0, sd = 0.5, log = TRUE))
+  lp <- lp + sum(dnorm(beta_pit, mean = 0, sd = 0.5, log = TRUE))
+  lp <- lp + sum(dnorm(conf_effects, mean = 0, sd = 0.1, log = TRUE))
+  lp <- lp + dnorm(log_sigma, mean = log(0.1), sd = 1, log = TRUE)
+
+  return(lp)
+}
+
+# log posterior = log likelihood + log prior
+log_posterior <- function(params, data) {
+  return(log_likelihood(params, data) + log_prior(params))
+}
+
+# metropolis-hastings sampler
+run_mcmc <- function(data, n_iter = 5000, burn_in = 1000) {
+
+  # initialize params
+  current <- rep(0, n_params)
+  current[1] <- 0.5                    # intercept start
+  current[length(current)] <- log(0.1) # log(sigma) start
+
+  # proposal standard deviations (tuned by hand lol)
+  proposal_sd <- rep(0.001, n_params)
+  proposal_sd[1] <- 0.005
+  proposal_sd[length(current)] <- 0.005
+
+  samples <- matrix(NA, nrow = n_iter, ncol = n_params)
+  current_lp <- log_posterior(current, data)
+  accepted <- 0
+
+  cat("Running MCMC...\n")
+  for (iter in 1:n_iter) {
+
+    # propose new params
+    proposal <- rnorm(n_params, mean = current, sd = proposal_sd)
+
+    proposed_lp <- log_posterior(proposal, data)
+
+    # accept/reject
+    log_ratio <- proposed_lp - current_lp
+    if (log(runif(1)) < log_ratio) {
+      current <- proposal
+      current_lp <- proposed_lp
+      accepted <- accepted + 1
+    }
+
+    samples[iter, ] <- current
+
+    if (iter %% 1000 == 0) {
+      cat("Iteration", iter, "of", n_iter, "- acceptance rate:", round(accepted / iter, 3), "\n")
+    }
+  }
+
+  cat("Done! Final acceptance rate:", round(accepted / n_iter, 3), "\n")
+
+  # throw away burn-in
+  samples <- samples[(burn_in + 1):n_iter, ]
+  return(samples)
+}
+
+set.seed(42)
+samples <- run_mcmc(model_data, n_iter = 20000, burn_in = 5000)
+
 # Pull posterior draws for the season-specific effects
-draws <- as_draws_df(fit)
+intercept_draws <- samples[, 1]
+cat("Intercept mean:", mean(intercept_draws), "\n")
+cat("Intercept 95% CI:", quantile(intercept_draws, c(0.025, 0.975)), "\n")
 
 # Or more conveniently:
-conditional_effects(fit, effects = "ops_z:season_f")
+bat_means <- c()
+bat_lo <- c()
+bat_hi <- c()
+pit_means <- c()
+pit_lo <- c()
+pit_hi <- c()
+
+for (s in 1:n_seasons) {
+  bat_col <- 1 + s
+  pit_col <- 1 + n_seasons + s
+
+  bat_means[s] <- mean(samples[, bat_col])
+  bat_lo[s] <- quantile(samples[, bat_col], 0.025)
+  bat_hi[s] <- quantile(samples[, bat_col], 0.975)
+
+  pit_means[s] <- mean(samples[, pit_col])
+  pit_lo[s] <- quantile(samples[, pit_col], 0.025)
+  pit_hi[s] <- quantile(samples[, pit_col], 0.975)
+}
 
 # For a custom plot of how effects evolve:
-posterior_summary(fit) %>%
-  as.data.frame() %>%
-  rownames_to_column("param") %>%
-  filter(str_detect(param, "ops_z|era_z")) %>%
-  mutate(
-    type = if_else(str_detect(param, "ops"), "Batting (OPS)", "Pitching (ERA)"),
-    year = as.numeric(str_extract(param, "\\d{4}"))
-  ) %>%
-  ggplot(aes(x = year, y = Estimate, color = type)) +
+plot_df <- data.frame(
+  year = rep(unique_seasons, 2),
+  effect = c(bat_means, pit_means),
+  lo = c(bat_lo, pit_lo),
+  hi = c(bat_hi, pit_hi),
+  type = rep(c("Batting (OPS)", "Pitching (ERA)"), each = n_seasons)
+)
+
+ggplot(plot_df, aes(x = year, y = effect, color = type)) +
   geom_line() +
-  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = type), alpha = 0.2) +
-  labs(y = "Effect on WPCT", title = "Batting vs Pitching Effect Over Time")
+  geom_ribbon(aes(ymin = lo, ymax = hi, fill = type), alpha = 0.2) +
+  labs(y = "Effect on WPCT", title = "Batting vs Pitching Effect Over Time") +
+  theme_minimal()
 
