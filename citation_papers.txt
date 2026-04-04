@@ -1,0 +1,50 @@
+Prediction modeling:
+
+1. Kumagai, Brendan (2024). Dynamic prediction of the National Hockey League draft with rank-ordered logic models. https://www.sciencedirect.com/science/article/abs/pii/S0169207024000086?via%3Dihub
+
+2. Gerber, Eric (2023). Competing Risks Analysis of MLB Draft Data. https://www.researchgate.net/publication/362605533_Competing_Risks_Analysis_of_MLB_Draft_Data. 
+	- https://e-gerber.shinyapps.io/DraftSurvival/
+
+3. https://engaged-learning.providence.edu/a-predictive-model-for-the-major-league-baseball-draft/. https://github.com/jni225/Projects-Repo/blob/main/jincantalupo_sabermetrics_reflection.pdf
+
+4. Huang (2021). Use of Machine Learning and Deep Learning to Predict the Outcomes of Major League Baseball Matches. https://www.mdpi.com/2076-3417/11/10/4499
+
+5. Kilanowski, Humbert (2024). Sabermetrics by the sea: Evaluating college players with the Cape Cod Baseball League. https://journals.sagepub.com/doi/full/10.3233/JSA-240771
+
+6. Babbitt, Donald (2018). A development model to guide the recruiting of female shot putters at the NCAA Division I Championship level. https://journals.sagepub.com/doi/full/10.3233/JSA-180275 
+
+7. https://www.mdpi.com/2078-2489/16/5/361
+
+Conference strength rankings: 
+1. http://www.boydsworld.com/baseball/isr/confisr.html
+
+2. https://www.warrennolan.com/baseball/2025/rpi-conference (used in model, need to cite formula)
+
+BBCOR in 2011 and Flat Seam in 2015:
+
+1. https://www.acs.psu.edu/drussell/bats/ncaa-stats.html
+
+Operating costs and ROI:
+
+1. https://athleticdirectoru.com/articles/an-analysis-of-college-baseball-return-on-investment/
+
+The relationship between spending and winning in college baseball
+
+1. https://journals.sagepub.com/doi/full/10.1177/1747954117710504 (locally stored)
+
+Value of college
+
+1. https://journals.sagepub.com/doi/10.1177/1527002506287700 (locally stored)
+
+2. https://scholarship.claremont.edu/cgi/viewcontent.cgi?article=4980&context=cmc_theses
+	Maximizing the MLB Draft: How College Performance and Leverage Impact Player Signing Bonus and Team Payoff, Derek Seneker
+
+3. https://www.tandfonline.com/doi/full/10.1080/00036846.2011.641933?casa_token=KaCniIZ5kd4AAAAA%3AjwuiLrwbsaQ0qTPJfPNUiQKEI_pASdM0xm2PI0ZMrcDG8WMHbT1oy46S248T1go5sD0WcvmnppCOMQ
+
+4. https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2019.02563/full
+
+5. Penn, Matthew, "The Value of Playing in College Baseball to Major League Baseball Organizations" (2023). Renée Crown University Honors Thesis Projects - All. 1595. https://surface.syr.edu/honors_capstone/1595
+
+XGBoost in Sports Analytics
+
+1. https://dl.acm.org/doi/full/10.1145/3760023.3760089
