@@ -103,7 +103,7 @@ library(jsonlite)
 library(ggplot2)
 library(dplyr)
 
-data <- fromJSON("data/div1/2012.json")
+data <- fromJSON("DS4420-BiggsMarino-Final-Project/data/div1/2012.json")
 data_sorted <- data[order(names(data))]
 
 # interactive viewer in RStudio
@@ -115,7 +115,7 @@ all_rows <- list()
 row_i <- 1
 
 for (yr in years) {
-  path <- paste0("data/div1/", yr, ".json")
+  path <- paste0("DS4420-BiggsMarino-Final-Project/data/div1/", yr, ".json")
   if (!file.exists(path)) next
 
   raw <- fromJSON(path)
