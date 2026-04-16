@@ -50,6 +50,37 @@ Each JSON file contains team-level season statistics with conference affiliation
 
 ### Bayesian Analysis
 
+**Hierarchical Linear Regression via Metropolis-Hastings:** A from-scratch implementation in R estimating the effect of run production and run prevention on win percentage. All three divisions are pooled at the team level (~12,000 team-season observations), with season-varying coefficients for R (Batting) and R (Pitching) and conference-level random effects to capture structural differences across ~130 conferences.
+
+- Weakly informative priors: intercept centered at .500, moderate effect size priors on slopes, tight prior on conference effects
+- Proposal standard deviations hand-tuned to achieve 25–35% acceptance rate
+- 10,000 iterations with 5,000 burn-in
+- 2020 season excluded due to COVID
+
+**Core R dependencies:**
+- `jsonlite` — JSON parsing for season data files
+- `dplyr` — data manipulation and cleaning
+- `ggplot2` — posterior visualization
+
+### Bayesian Analysis (Example Usage)
+```r
+# Load and combine all divisions (2011–2025, excluding 2020)
+all_data <- bind_rows(all_rows)
+
+# Z-score predictors
+model_data$rbat_z <- (model_data$r_batting - mean(model_data$r_batting, na.rm = TRUE)) / sd(model_data$r_batting, na.rm = TRUE)
+model_data$rpit_z <- (model_data$r_pitching - mean(model_data$r_pitching, na.rm = TRUE)) / sd(model_data$r_pitching, na.rm = TRUE)
+
+# Run MCMC sampler
+set.seed(42)
+samples <- run_mcmc(model_data, n_iter = 10000, burn_in = 5000)
+
+# Extract season-varying effects and plot
+ggplot(plot_df, aes(x = year, y = effect, color = type)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lo, ymax = hi, fill = type), alpha = 0.2) +
+  theme_minimal()
+```
 
 ## Installation & Requirements
 ```bash
