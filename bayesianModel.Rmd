@@ -236,3 +236,25 @@ ggplot(plot_df, aes(x = year, y = effect, color = type)) +
   scale_x_continuous(breaks = unique_seasons) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+```{r data-summary}
+cat("Total team-season observations:", nrow(model_data), "\n")
+cat("Unique conferences:", length(unique(model_data$conference)), "\n")
+cat("Unique teams:", length(unique(model_data$team)), "\n")
+cat("Seasons:", paste(range(model_data$season), collapse = "–"), "\n")
+cat("Observations per division:\n")
+print(table(model_data$division))
+```
+
+```{r runs-scatter, fig.width=9, fig.height=5}
+ggplot(model_data, aes(x = r_batting, y = r_pitching, color = wpct)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  scale_color_gradient2(low = "#2A9D8F", mid = "#F4A261", high = "#E63946", midpoint = 0.5) +
+  labs(
+    x = "Runs Scored",
+    y = "Runs Allowed",
+    title = "Runs Scored vs. Runs Allowed (All Divisions, 2011–2025)",
+    color = "Win %"
+  ) +
+  theme_minimal()
+```
+
