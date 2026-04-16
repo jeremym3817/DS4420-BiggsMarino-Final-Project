@@ -1,89 +1,113 @@
+---
+title: "Mateo Biggs  \nDS 4420  \nFinal Project - Bayesian Model"
+date: "2026-04-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Libraries
+
+```{r libraries}
 library(jsonlite)
 library(ggplot2)
 library(dplyr)
+```
 
-data <- fromJSON("DS4420-BiggsMarino-Final-Project/data/div1/2012.json")
-data_sorted <- data[order(names(data))]
+## Combine All Seasons (2008–2025), Divisions 1–3
 
-# interactive viewer in RStudio
-str(data_sorted, max.level = 2)
+```{r load-all-data}
+years <- 2011:2025
+years <- years[years != 2020]  # remove COVID-shortened season
 
-# Now moving over to all data
-years <- 2012:2025
+divisions <- c("div1", "div2", "div3")
+
 all_rows <- list()
 row_i <- 1
 
-for (yr in years) {
-  path <- paste0("DS4420-BiggsMarino-Final-Project/data/div1/", yr, ".json")
-  if (!file.exists(path)) next
+for (div in divisions) {
+  for (yr in years) {
+    path <- paste0("data/", div, "/", yr, ".json")
+    if (!file.exists(path)) next
 
-  raw <- fromJSON(path)
+    raw <- fromJSON(path)
 
-  # Each element is a team; convert to rows
-  for (team_key in names(raw)) {
-    team_info <- as.data.frame(raw[[team_key]], stringsAsFactors = FALSE)
-    team_info$team_key <- team_key
-    team_info$season <- yr
-    all_rows[[row_i]] <- team_info
-    row_i <- row_i + 1
+    for (team_key in names(raw)) {
+      team_info <- as.data.frame(raw[[team_key]], stringsAsFactors = FALSE)
+      team_info$team_key <- team_key
+      team_info$season <- yr
+      team_info$division <- div
+      all_rows[[row_i]] <- team_info
+      row_i <- row_i + 1
+    }
   }
 }
 
 all_data <- bind_rows(all_rows)
+```
 
+## Feature Engineering
+
+```{r feature-engineering}
 model_data <- data.frame(
   team = all_data$team,
   conference = all_data$league,
+  division = all_data$division,
   season = all_data$season,
   wpct = as.numeric(all_data$WPCT),
-  obp = as.numeric(all_data$OBP),
-  rpg = as.numeric(all_data$RPG),
-  era = as.numeric(all_data$ERA),
-  r_pitching = as.numeric(all_data$R..Pitching.),
   r_batting = as.numeric(all_data$R..Batting.),
-  slg = as.numeric(all_data$SLG),
+  r_pitching = as.numeric(all_data$R..Pitching.),
   g = as.numeric(all_data$G),
   stringsAsFactors = FALSE
 )
 
-model_data$ops <- model_data$slg + model_data$obp   # OPS = OBP + SLG (since raw OPS isn't in the data)
-model_data$run_diff <- model_data$r_batting - model_data$r_pitching
+model_data$rbat_z <- (model_data$r_batting - mean(model_data$r_batting, na.rm = TRUE)) / sd(model_data$r_batting, na.rm = TRUE)
+model_data$rpit_z <- (model_data$r_pitching - mean(model_data$r_pitching, na.rm = TRUE)) / sd(model_data$r_pitching, na.rm = TRUE)
 
-model_data$ops_z <- (model_data$ops - mean(model_data$ops, na.rm = TRUE)) / sd(model_data$ops, na.rm = TRUE)
-model_data$era_z <- (model_data$era - mean(model_data$era, na.rm = TRUE)) / sd(model_data$era, na.rm = TRUE)
+model_data <- model_data[complete.cases(model_data$wpct, model_data$rbat_z, model_data$rpit_z), ]
+```
 
-model_data <- model_data[complete.cases(model_data$wpct, model_data$ops_z, model_data$era_z), ]
+## Bayesian Model Setup
 
-# ---------- manual bayesian model using metropolis-hastings ----------
+Season-varying coefficients for R (Batting) and R (Pitching), conference random effects, and a shared intercept — all estimated via Metropolis-Hastings.
 
+```{r model-setup}
 unique_seasons <- sort(unique(model_data$season))
 unique_confs <- sort(unique(model_data$conference))
 n_seasons <- length(unique_seasons)
 n_confs <- length(unique_confs)
 
-# number of params: intercept + batting effect per season + pitching effect per season + conference random effects + sigma
+# intercept + batting effect per season + pitching effect per season + conference random effects + sigma
 n_params <- 1 + n_seasons + n_seasons + n_confs + 1
+```
 
-# log likelihood function
+### Log-Likelihood
+
+```{r log-likelihood}
 log_likelihood <- function(params, data) {
   intercept <- params[1]
   beta_bat <- params[2:(1 + n_seasons)]
   beta_pit <- params[(2 + n_seasons):(1 + 2 * n_seasons)]
   conf_effects <- params[(2 + 2 * n_seasons):(1 + 2 * n_seasons + n_confs)]
-  sigma <- exp(params[length(params)])  # exp so it stays positive
+  sigma <- exp(params[length(params)])
 
   ll <- 0
   for (i in 1:nrow(data)) {
     s_idx <- which(unique_seasons == data$season[i])
     c_idx <- which(unique_confs == data$conference[i])
 
-    mu <- intercept + beta_bat[s_idx] * data$ops_z[i] + beta_pit[s_idx] * data$era_z[i] + conf_effects[c_idx]
+    mu <- intercept + beta_bat[s_idx] * data$rbat_z[i] + beta_pit[s_idx] * data$rpit_z[i] + conf_effects[c_idx]
     ll <- ll + dnorm(data$wpct[i], mean = mu, sd = sigma, log = TRUE)
   }
   return(ll)
 }
+```
 
-# log prior
+### Log-Prior
+
+```{r log-prior}
 log_prior <- function(params) {
   intercept <- params[1]
   beta_bat <- params[2:(1 + n_seasons)]
@@ -99,24 +123,28 @@ log_prior <- function(params) {
 
   return(lp)
 }
+```
 
-# log posterior = log likelihood + log prior
+### Log-Posterior
+
+```{r log-posterior}
 log_posterior <- function(params, data) {
   return(log_likelihood(params, data) + log_prior(params))
 }
+```
 
-# metropolis-hastings sampler
+## Metropolis-Hastings Sampler
+
+```{r mcmc-sampler}
 run_mcmc <- function(data, n_iter = 5000, burn_in = 1000) {
 
-  # initialize params
   current <- rep(0, n_params)
-  current[1] <- 0.5                    # intercept start
-  current[length(current)] <- log(0.1) # log(sigma) start
+  current[1] <- 0.5
+  current[length(current)] <- log(0.1)
 
-  # proposal standard deviations (tuned by hand lol)
-  proposal_sd <- rep(0.001, n_params)
-  proposal_sd[1] <- 0.005
-  proposal_sd[length(current)] <- 0.005
+  proposal_sd <- rep(0.0005, n_params)
+  proposal_sd[1] <- 0.003
+  proposal_sd[length(current)] <- 0.003
 
   samples <- matrix(NA, nrow = n_iter, ncol = n_params)
   current_lp <- log_posterior(current, data)
@@ -125,12 +153,10 @@ run_mcmc <- function(data, n_iter = 5000, burn_in = 1000) {
   cat("Running MCMC...\n")
   for (iter in 1:n_iter) {
 
-    # propose new params
     proposal <- rnorm(n_params, mean = current, sd = proposal_sd)
 
     proposed_lp <- log_posterior(proposal, data)
 
-    # accept/reject
     log_ratio <- proposed_lp - current_lp
     if (log(runif(1)) < log_ratio) {
       current <- proposal
@@ -147,20 +173,29 @@ run_mcmc <- function(data, n_iter = 5000, burn_in = 1000) {
 
   cat("Done! Final acceptance rate:", round(accepted / n_iter, 3), "\n")
 
-  # throw away burn-in
   samples <- samples[(burn_in + 1):n_iter, ]
   return(samples)
 }
+```
 
+## Run the Sampler
+
+```{r run-mcmc}
 set.seed(42)
-samples <- run_mcmc(model_data, n_iter = 20000, burn_in = 5000)
+samples <- run_mcmc(model_data, n_iter = 10000, burn_in = 5000)
+```
 
-# Pull posterior draws for the season-specific effects
+## Posterior Summary
+
+```{r posterior-summary}
 intercept_draws <- samples[, 1]
 cat("Intercept mean:", mean(intercept_draws), "\n")
 cat("Intercept 95% CI:", quantile(intercept_draws, c(0.025, 0.975)), "\n")
+```
 
-# Or more conveniently:
+## Extract Season-Specific Effects
+
+```{r season-effects}
 bat_means <- c()
 bat_lo <- c()
 bat_hi <- c()
@@ -180,19 +215,24 @@ for (s in 1:n_seasons) {
   pit_lo[s] <- quantile(samples[, pit_col], 0.025)
   pit_hi[s] <- quantile(samples[, pit_col], 0.975)
 }
+```
 
-# For a custom plot of how effects evolve:
+## Batting vs. Pitching Effect Over Time
+
+```{r effects-plot, fig.width=9, fig.height=5}
 plot_df <- data.frame(
   year = rep(unique_seasons, 2),
   effect = c(bat_means, pit_means),
   lo = c(bat_lo, pit_lo),
   hi = c(bat_hi, pit_hi),
-  type = rep(c("Batting (OPS)", "Pitching (ERA)"), each = n_seasons)
+  type = rep(c("R (Batting)", "R (Pitching)"), each = n_seasons)
 )
 
 ggplot(plot_df, aes(x = year, y = effect, color = type)) +
   geom_line() +
   geom_ribbon(aes(ymin = lo, ymax = hi, fill = type), alpha = 0.2) +
   labs(y = "Effect on WPCT", title = "Batting vs Pitching Effect Over Time") +
-  theme_minimal()
-
+  theme_minimal() +
+  scale_x_continuous(breaks = unique_seasons) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```

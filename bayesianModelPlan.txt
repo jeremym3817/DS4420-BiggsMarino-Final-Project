@@ -1,9 +1,4 @@
----
-title: "timeSeriesModel"
-output: html_document
----
-
-# Time Series Model Plan
+# Bayesian Model Plan
 # Project: Batting vs Pitching Relationship in College Baseball
 
 # 1. Idea:
@@ -40,25 +35,55 @@ output: html_document
 
 # 3. Basic idea of the model
 #
-# Aggregate batting/pitching features for test/training years (most likely start in 2012)
-# 
-# Try different Time Series models to see what fits best (with preprocessing analysis)
-# 
-
-# 4. Conferences
+# Basic relationship:
 #
-# See the evolution of relationship between all divisions
+# team_success =
+#   intercept
+#   + batting_effect * batting_stat
+#   + pitching_effect * pitching_stat
+#
+# Bayesian models estimate probability distributions for these effects.
+
+# 4. Allow the relationship to change by season
+#
+# The importance of batting and pitching might change every year. So the model will estimate separate effects for each season.
+#
+# Example:
+#
+# batting_effect_2019
+# batting_effect_2020
+# batting_effect_2021
+#
+# pitching_effect_2019
+# pitching_effect_2020
+# pitching_effect_2021
+#
+# This lets us see if batting changes over time.
+
+# 5. Conferences
+#
+# Teams belong to conferences and conferences may differ in
+# overall strength.
+#
+# Could use RPI - Conference Rankings?
+
+# 6. Priors
+#
+# Example priors:
+#
+# intercept ~ Normal()
+# batting_effect ~ Normal()
+# pitching_effect ~ Normal()
 #
 # These are just starting assumptions and the data should update them.
 
-# 5. What we want from the model
+# 7. What we want from the model
 # - how strong the batting effect is each season
 # - how strong the pitching effect is each season
-# - how the relationship changes overtime and the future
 #
 # This tells us whether college baseball has become more offense-driven or pitching-driven over time.
 
-# 6. Steps to implement
+# 8. Steps to implement
 #
 # a. Load and clean the data
 #
@@ -68,6 +93,6 @@ output: html_document
 #
 # d. Encode teams, conferences, and seasons
 #
-# e. Fit Time Series model
+# e. Fit Bayesian model
 #
-# f. Understand relation between pitching and batting. Predict furture relationships
+# f. Extract the batting and pitching effects for each season
